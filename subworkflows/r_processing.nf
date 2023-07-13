@@ -2,7 +2,11 @@ process run_r_script {
     tag "$sequence_id"
     label 'process_high'
     publishDir "${params.out_dir}/processed_tsv", mode: 'copy', pattern: "*.tsv"
-    module 'R/4.2.3'
+
+    conda (params.enable_conda ? 'r::r-tidyverse=1.2.1' : null)
+    container "${ workflow.containerEngine == 'singularity' && !task.ext.singularity_pull_docker_container ?
+        'https://depot.galaxyproject.org/singularity/r-tidyverse%3A1.2.1' :
+        'quay.io/biocontainers/r-tidyverse:1.2.1' }"
 
     input:
     tuple val(sequence_id), path(merged_tsv)
@@ -20,7 +24,8 @@ process run_r_script {
     library(stringr)
     library(dplyr)
     library(tidyr)
-    library(vroom)
+    #library(readr)
+    # TO DO MAKE CONTAINER WITH VROOM AND USE THAT INSTEAD OF READR
 
     working_dir <- getwd()
 
@@ -28,10 +33,17 @@ process run_r_script {
     sample_id <- '$sequence_id'
 
     # reading in the data
-    entire_data <- vroom('$merged_tsv',
-                     col_select = c("stop_codon", "vj_in_frame", "v_frameshift",
-                                    "productive", "v_call", "d_call", "j_call", "cdr3_aa",
-                                    "sequence_alignment_aa"))
+    entire_data <- read.table(
+        '$merged_tsv',
+        sep = "\t", header = TRUE, stringsAsFactors = FALSE,
+        colClasses = c(rep("NULL", 3), rep("character", 4), rep("NULL", 2), rep("character", 3), rep("NULL", 2), "character", rep("NULL", 32), "character", rep("NULL", 45)))
+
+    # until a custom env can be built
+    entire_data <- entire_data %>%
+        mutate(stop_codon = as.logical(stop_codon)) %>%
+        mutate(vj_in_frame = as.logical(vj_in_frame)) %>%
+        mutate(v_frameshift = as.logical(v_frameshift)) %>%
+        mutate(productive = as.logical(productive))
 
     # categories of productivity
     entire_data %>%
@@ -46,7 +58,7 @@ process run_r_script {
 
     # germline V genes
     entire_data %>%
-        filter(productive == TRUE) %>%
+        filter(as.logical(productive) == TRUE) %>%
         select("v_call") %>%
         table() %>%
         as_tibble() %>%
@@ -56,6 +68,7 @@ process run_r_script {
 
     # germline D genes
     entire_data %>%
+        filter(as.logical(productive) == TRUE) %>%
         select("d_call") %>%
         table() %>%
         as_tibble() %>%
@@ -65,7 +78,7 @@ process run_r_script {
 
     # germline J genes
     entire_data %>%
-        filter(productive == TRUE) %>%
+        filter(as.logical(productive) == TRUE) %>%
         select("j_call") %>%
         table() %>%
         as_tibble() %>%
@@ -75,7 +88,7 @@ process run_r_script {
 
     # CDR3 counts
     entire_data %>%
-        filter(productive == TRUE) %>%
+        filter(as.logical(productive) == TRUE) %>%
         select(cdr3_aa) %>%
         drop_na() %>%
         group_by(cdr3_aa) %>%
@@ -85,29 +98,30 @@ process run_r_script {
         arrange(desc(count)) -> cdr3_counts
 
     # whole nanobody aa sequence
-    entire_data %>%
-        filter(productive == TRUE) %>%
-        select(c(sequence_alignment_aa, cdr3_aa)) %>%
-        drop_na() %>%
-        summarise(count = n(), cdr3_aa = cdr3_aa[1], .by = sequence_alignment_aa) %>%
-        mutate(cpm = (count / sum(count)) * 1000000) %>%
-        group_by(cdr3_aa) %>% # choose the most common aa seq for each cdr3
-        summarise(
-            sequence_alignment_aa = sequence_alignment_aa[which.max(cpm)],
-            cdr3_count = n()) %>%
-        filter(cdr3_count > 1) %>%
-        mutate(cdr3_cpm = (cdr3_count / sum(cdr3_count)) * 1000000) %>%
-        select(-cdr3_count) %>%
-        mutate(sample_id = sample_id) %>%
-        arrange(desc(cdr3_cpm)) -> whole_aa_seq
+   # test %>%
+   #     filter(as.logical(productive) == TRUE) %>%
+   #     select(c(sequence_alignment_aa, cdr3_aa)) %>%
+   #     drop_na() %>%
+   #     filter(nchar(cdr3_aa) >= 5) %>%
+   #     summarise(count = n(), cdr3_aa = cdr3_aa[1], .by = sequence_alignment_aa) %>%
+   #     mutate(cpm = (count / sum(count)) * 1000000) %>%
+   #     group_by(cdr3_aa) %>% # choose the most common aa seq for each cdr3
+   #     summarise(
+   #         sequence_alignment_aa = sequence_alignment_aa[which.max(cpm)],
+   #         cdr3_count = n()) %>%
+   #     filter(cdr3_count > 1) %>%
+   #     mutate(cdr3_cpm = (cdr3_count / sum(cdr3_count)) * 1000000) %>%
+   #     select(-cdr3_count) %>%
+   #     mutate(sample_id = sample_id) %>%
+   #     arrange(desc(cdr3_cpm)) -> whole_aa_seq
 
     # write out
-    vroom_write(productivity_categories, "${sequence_id}_productivity_categories.tsv")
-    vroom_write(v_calls, "${sequence_id}_v_calls.tsv")
-    vroom_write(d_calls, "${sequence_id}_d_calls.tsv")
-    vroom_write(j_calls, "${sequence_id}_j_calls.tsv")
-    vroom_write(cdr3_counts, "${sequence_id}_cdr3_counts.tsv")
-    vroom_write(whole_aa_seq, "${sequence_id}_whole_aa_seq.tsv")
+    write.table(productivity_categories, "${sequence_id}_productivity_categories.tsv")
+    write.table(v_calls, "${sequence_id}_v_calls.tsv")
+    write.table(d_calls, "${sequence_id}_d_calls.tsv")
+    write.table(j_calls, "${sequence_id}_j_calls.tsv")
+    write.table(cdr3_counts, "${sequence_id}_cdr3_counts.tsv")
+    #write.table(whole_aa_seq, "${sequence_id}_whole_aa_seq.tsv")
     """
 }
 
