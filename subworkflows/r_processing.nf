@@ -2,30 +2,25 @@ process run_r_script {
     tag "$sequence_id"
     label 'process_high'
     publishDir "${params.out_dir}/processed_tsv", mode: 'copy', pattern: "*.tsv"
-
-    conda (params.enable_conda ? 'r::r-tidyverse=1.2.1' : null)
+    container "library://kzeglinski/nanologix/nanologix-report:latest"
+    /* conda (params.enable_conda ? 'r::r-tidyverse=1.2.1' : null)
     container "${ workflow.containerEngine == 'singularity' && !task.ext.singularity_pull_docker_container ?
         'https://depot.galaxyproject.org/singularity/r-tidyverse%3A1.2.1' :
-        'quay.io/biocontainers/r-tidyverse:1.2.1' }"
+        'quay.io/biocontainers/r-tidyverse:1.2.1' }" */
 
     input:
     tuple val(sequence_id), path(merged_tsv)
 
     output:
-    tuple val(sequence_id), path('*.tsv'), emit: processed_tsv
+    path('*.tsv'), emit: processed_tsv
 
     script:
     """
     #!/usr/bin/env Rscript
-    #install.packages('stringr', repos='http://cran.us.r-project.org')
-    #install.packages('dplyr', repos='http://cran.us.r-project.org')
-    #install.packages('vroom', repos='http://cran.us.r-project.org')
-    #install.packages('tidyr', repos='http://cran.us.r-project.org')
     library(stringr)
     library(dplyr)
     library(tidyr)
-    #library(readr)
-    # TO DO MAKE CONTAINER WITH VROOM AND USE THAT INSTEAD OF READR
+    library(vroom)
 
     working_dir <- getwd()
 
@@ -33,33 +28,24 @@ process run_r_script {
     sample_id <- '$sequence_id'
 
     # reading in the data
-    entire_data <- read.table(
+    entire_data <- vroom(
         '$merged_tsv',
-        sep = "\t", header = TRUE, stringsAsFactors = FALSE,
-        colClasses = c(rep("NULL", 3), rep("character", 4), rep("NULL", 2), rep("character", 3), rep("NULL", 2), "character", rep("NULL", 32), "character", rep("NULL", 45)))
-
-    # until a custom env can be built
-    entire_data <- entire_data %>%
-        mutate(stop_codon = as.logical(stop_codon)) %>%
-        mutate(vj_in_frame = as.logical(vj_in_frame)) %>%
-        mutate(v_frameshift = as.logical(v_frameshift)) %>%
-        mutate(productive = as.logical(productive))
+        col_select = c("productive", "complete_vdj","stop_codon", "vj_in_frame", "v_frameshift", "v_call", "d_call", "j_call", "cdr3_aa", "sequence_alignment_aa", "sequence_alignment",
+        "v_cigar", "j_cigar")
+    )
 
     # categories of productivity
     entire_data %>%
-        select(c("productive", "stop_codon", "vj_in_frame", "v_frameshift")) %>%
-        group_by(productive, stop_codon, vj_in_frame, v_frameshift) %>%
+        select(c(productive, stop_codon, vj_in_frame, v_frameshift)) %>%
         drop_na() %>%
-        summarise(count = n()) %>%
-        as.data.frame() %>%
-        as_tibble() %>%
-        mutate(percentage = prop.table(count) * 100) %>%
+        summarise(count = n(), .by = c(productive, stop_codon, vj_in_frame, v_frameshift)) %>%
+        mutate(percentage = count / sum(count) * 100) %>%
         mutate(sample_id = sample_id) -> productivity_categories
 
     # germline V genes
     entire_data %>%
-        filter(as.logical(productive) == TRUE) %>%
-        select("v_call") %>%
+        filter(productive == TRUE) %>%
+        select(v_call) %>%
         table() %>%
         as_tibble() %>%
         mutate(percentage = n / sum(n) * 100) %>%
@@ -68,8 +54,8 @@ process run_r_script {
 
     # germline D genes
     entire_data %>%
-        filter(as.logical(productive) == TRUE) %>%
-        select("d_call") %>%
+        filter(productive == TRUE) %>%
+        select(d_call) %>%
         table() %>%
         as_tibble() %>%
         mutate(percentage = n / sum(n) * 100) %>%
@@ -78,7 +64,7 @@ process run_r_script {
 
     # germline J genes
     entire_data %>%
-        filter(as.logical(productive) == TRUE) %>%
+        filter(productive == TRUE) %>%
         select("j_call") %>%
         table() %>%
         as_tibble() %>%
@@ -86,42 +72,56 @@ process run_r_script {
         select(-n) %>%
         mutate(sample_id = sample_id) -> j_calls
 
-    # CDR3 counts
+    # clone information
     entire_data %>%
-        filter(as.logical(productive) == TRUE) %>%
-        select(cdr3_aa) %>%
+        filter(productive == TRUE) %>%
+        select(c(cdr3_aa, sequence_alignment_aa, sequence_alignment)) %>%
+        filter(!str_detect(sequence_alignment_aa, "X")) %>% # remove sequences with Xs
         drop_na() %>%
+        summarise(count = n(),
+            .by = c(cdr3_aa, sequence_alignment_aa, sequence_alignment)) %>%
         group_by(cdr3_aa) %>%
-        summarise(count = n()) %>%
-        mutate(proportion = count / sum(count)) %>%
+        summarise(
+            cdr3_aa = cdr3_aa[1],
+            sequence_alignment_aa = sequence_alignment_aa[which.max(count)],
+            sequence_alignment = sequence_alignment[which.max(count)],
+            cdr3_count = sum(count)) %>%
+        filter(cdr3_count > 1) %>% # remove CDR3 with count of 1
+        mutate(proportion = cdr3_count / sum(cdr3_count)) %>%
+        mutate(cdr3_cpm = proportion * 1000000) %>%
         mutate(sample_id = sample_id) %>%
-        arrange(desc(count)) -> cdr3_counts
+        arrange(desc(cdr3_cpm)) -> clone_information
 
-    # whole nanobody aa sequence
-   # test %>%
-   #     filter(as.logical(productive) == TRUE) %>%
-   #     select(c(sequence_alignment_aa, cdr3_aa)) %>%
-   #     drop_na() %>%
-   #     filter(nchar(cdr3_aa) >= 5) %>%
-   #     summarise(count = n(), cdr3_aa = cdr3_aa[1], .by = sequence_alignment_aa) %>%
-   #     mutate(cpm = (count / sum(count)) * 1000000) %>%
-   #     group_by(cdr3_aa) %>% # choose the most common aa seq for each cdr3
-   #     summarise(
-   #         sequence_alignment_aa = sequence_alignment_aa[which.max(cpm)],
-   #         cdr3_count = n()) %>%
-   #     filter(cdr3_count > 1) %>%
-   #     mutate(cdr3_cpm = (cdr3_count / sum(cdr3_count)) * 1000000) %>%
-   #     select(-cdr3_count) %>%
-   #     mutate(sample_id = sample_id) %>%
-   #     arrange(desc(cdr3_cpm)) -> whole_aa_seq
+    # CDR3 samples for saturation plot data
+    # make a vector of cdr3s to sample from
+    all_cdr3_vector <- rep(clone_information[["cdr3_aa"]], times = clone_information[["cdr3_count"]])
+
+    # do the sampling
+    cdr3_samples <- tibble(
+        sample_size = round(seq(0, length(all_cdr3_vector), length.out = 100)),
+        sample_num = rep(sample_id, 100))
+    cdr3_samples[["number_unique"]] <- sapply(
+        cdr3_samples[["sample_size"]],
+        function(x) length(unique(sample(all_cdr3_vector, size = x, replace = FALSE))))
+
+    # calculate the derivative
+    cdr3_samples[["derivative"]] <- c(0,
+    diff(cdr3_samples[["number_unique"]]) / diff(cdr3_samples[["sample_size"]]))
+
+    # nucleotide sequences
+    nucleotide_sequences <- entire_data %>%
+        filter(productive == TRUE) %>%
+        mutate(sample_id = sample_id) %>%
+        select(c(cdr3_aa, sequence_alignment, v_cigar, j_cigar))
 
     # write out
-    write.table(productivity_categories, "${sequence_id}_productivity_categories.tsv")
-    write.table(v_calls, "${sequence_id}_v_calls.tsv")
-    write.table(d_calls, "${sequence_id}_d_calls.tsv")
-    write.table(j_calls, "${sequence_id}_j_calls.tsv")
-    write.table(cdr3_counts, "${sequence_id}_cdr3_counts.tsv")
-    #write.table(whole_aa_seq, "${sequence_id}_whole_aa_seq.tsv")
+    vroom_write(productivity_categories, "${sequence_id}_productivity_categories.tsv")
+    vroom_write(v_calls, "${sequence_id}_v_calls.tsv")
+    vroom_write(d_calls, "${sequence_id}_d_calls.tsv")
+    vroom_write(j_calls, "${sequence_id}_j_calls.tsv")
+    vroom_write(clone_information, "${sequence_id}_clone_information.tsv")
+    vroom_write(cdr3_samples, "${sequence_id}_saturation_plot_data.tsv")
+    vroom_write(nucleotide_sequences, "${sequence_id}_nucleotide_sequences.tsv")
     """
 }
 

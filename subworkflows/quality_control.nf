@@ -60,6 +60,7 @@ workflow quality_control {
         // make multiqc report
         multiqc(fastqc_reports)
         multiqc_report = multiqc.out.report
+        multiqc_plots = multiqc.out.plots
 
         // determine the percentage of reads that pass trimming/merging
         // we need a tuple like [sample name, r1 file, trimmed_merged_file]
@@ -73,7 +74,10 @@ workflow quality_control {
         // collect the results so our cat process only runs once
         individual_passing_trim_merge = percentage_passing_trim_merge.out.num_reads.collect()
         cat_all_percentage_passing_trim_merge(individual_passing_trim_merge)
+        percentage_passing_trim_merge = cat_all_percentage_passing_trim_merge.out.percentage_passing_trim_merge
 
     emit:
         multiqc_report
+        percentage_passing_trim_merge
+        multiqc_plots
 }

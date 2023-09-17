@@ -1,4 +1,4 @@
-// run multiqc 
+// run multiqc
 // adapted from nf-core module: https://github.com/nf-core/modules/blob/master/modules/nf-core/multiqc/main.nf
 process multiqc {
     label 'process_medium'
@@ -13,8 +13,9 @@ process multiqc {
     path  multiqc_files, stageAs: "?/*"
 
     output:
-    path "multiqc_report.html" , emit: report
-    path "versions.yml"        , emit: versions
+    path "multiqc_report.html"      , emit: report
+    path "multiqc_plots/png/*.png"  , emit: plots
+    path "versions.yml"             , emit: versions
 
     when:
     task.ext.when == null || task.ext.when
@@ -25,6 +26,7 @@ process multiqc {
     """
     multiqc \\
         --force \\
+        --export \\
         $args \\
         .
 

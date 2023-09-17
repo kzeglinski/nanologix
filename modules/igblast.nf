@@ -8,7 +8,7 @@ process igblast {
     container "${ workflow.containerEngine == 'singularity' && !task.ext.singularity_pull_docker_container ?
         'https://depot.galaxyproject.org/singularity/igblast%3A1.19.0--pl5321h3928612_0' :
         'quay.io/biocontainers/igblast:1.19.0--pl5321h3928612_0' }"
-    
+
     input:
     tuple val(sequence_id), path(reads)
     val igblast_databases
@@ -26,6 +26,7 @@ process igblast {
     read_base_name=\$(basename "$reads" .fastq)
     # run igblast
     # outfmt 19 = AIRR format (tsv, easy to use in downstream steps)
+    # num_alignments_* = only report the best hit
     igblastn -germline_db_V ${igblast_databases}/databases/imgt_alpaca_ighv \
         -germline_db_J ${igblast_databases}/databases/imgt_alpaca_ighj \
         -germline_db_D ${igblast_databases}/databases/imgt_alpaca_ighd \

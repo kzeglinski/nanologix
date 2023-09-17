@@ -2,7 +2,7 @@
 // adapted from the nf-core module here: https://github.com/kzeglinski/nabseq_nf/blob/main/modules/local/cutadapt.nf
 process trimgalore {
     tag "$sequence_id"
-    label 'process_high'
+    label 'process_medium'
     //publishDir "${params.out_dir}/trimmed_reads", mode: 'copy', pattern: "*.fq.gz"
 
     conda "bioconda::trim-galore=0.6.7"
@@ -45,7 +45,7 @@ process trimgalore {
         --cores $cores \\
         --paired \\
         --gzip \\
-        --quality 10 \\
+        --quality 20 \\
         --fastqc \\
         -a $adapter_r1 \\
         -a2 $adapter_r2 \\
