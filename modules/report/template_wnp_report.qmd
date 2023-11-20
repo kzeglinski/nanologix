@@ -1,0 +1,128 @@
+---
+title: WNP report
+date: today
+bibliography: _template/references.bib
+csl: _template/vancouver_superscript.csl
+knitr:
+  opts_chunk:
+    echo: false
+    message: false
+    warning: false
+format:
+    html:
+        grid:
+            body-width: 1000px
+            margin-width: 20px
+        theme: _template/litera_edited.scss
+        embed-resources: true
+        fig-width: 10
+        fig-height: 5
+        fig-dpi: 200
+        toc: true
+        toc-location: left
+        toc-depth: 4
+        toc-expand: 2
+        include-in-header:
+            - text: <link rel="preconnect" href="https://fonts.googleapis.com"> <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin> <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,700;1,700&family=Poppins:ital,wght@0,400;0,600;1,400;1,600&display=swap" rel="stylesheet">
+params:
+  analysis_name: param_analysis_name
+---
+## Introduction
+This is the WNP report for `r params$analysis_name`. The report is interactive: click around on the plots and use the download buttons to export the tables/sequences for further analysis!
+
+[some more introductory text, maybe a simple explanation of the method? or something else?]
+
+```{r}
+# pre-render scripts
+source("_template/pre_render_script.R")
+source("_template/panning_pre_render.R")
+```
+
+
+## Top 100 enriched sequences
+```{r}
+panning_id <- metadata[["panning_id"]][1] # only one pan
+all_counts_filtered %>%
+    make_count_matrix(id = panning_id) %>%
+    filter(nchar(sequence_alignment_aa) > 110) -> full_count_matrix
+
+# get the top 100 for round 1 and 2
+full_count_matrix %>%
+    slice_max(n = 100, order_by = R1_NA_vs_R0_NA) -> R1_top_100
+
+full_count_matrix %>%
+    slice_max(n = 100, order_by = R2_NA_vs_R0_NA) -> R2_top_100
+
+
+R1_sequences <- Biostrings::AAStringSet(R1_top_100$cdr3_aa)
+names(R1_sequences) <- R1_top_100$cdr3_aa
+R1_msa <- msa(R1_sequences, method = "ClustalOmega", type = "protein")
+R1_matrix <- seqinr::dist.alignment(
+    msaConvert(R1_msa, type = "seqinr::alignment"), matrix = "identity")
+R1_clustered <- ape::njs(R1_matrix)
+R1_plot <- ggtree(R1_clustered, layout = "equal_angle")
+R1_plot
+
+R2_sequences <- Biostrings::AAStringSet(R2_top_100$cdr3_aa)
+names(R2_sequences) <- R2_top_100$cdr3_aa
+R2_msa <- msa(R2_sequences, method = "ClustalOmega", type = "protein")
+R2_matrix <- seqinr::dist.alignment(
+    msaConvert(R2_msa, type = "seqinr::alignment"), matrix = "identity")
+R2_clustered <- ape::njs(R2_matrix)
+R2_plot <- ggtree(R2_clustered, layout = "equal_angle")
+R2_plot
+```
+
+## Enriched clusters
+```{r}
+# get enriched sequences
+enriched_clustered <- determine_enriched(
+    all_counts_filtered, panning_id, logfc_cutoff = 1.5)
+
+# create the pca plot & find top 100
+cluster_pca_plot <- plot_cluster_pca(enriched_clustered, id = params$analysis_name)
+
+# get full sequences
+# first find the ones we are looking for (this pan, round 2 only)
+wanted_samples <- metadata %>%
+    filter(round == 2) %>%
+    pull(sample_num)
+
+wanted_samples <- paste0(wanted_samples, "_")
+
+all_files <- fs::dir_ls(glob = "*_nucleotide_sequences.tsv")
+wanted_files <- str_subset(all_files, paste(wanted_samples, collapse = "|"))
+
+nucleotide_sequences <- vroom(wanted_files)
+
+# top 100 full sequences, with missing nt filled in
+top_100_diversity_nt_seq <- get_full_sequences(
+    cdr3s = cluster_pca_plot[["top_100_diversity"]],
+    nucleotide_sequences,
+    trim_5p = 'CAGGTGCAGCTGCAG', trim_3p = 'GGTCACCGTCTCCTCA')
+
+top_100_enrichment_nt_seq <- get_full_sequences(
+    cdr3s = cluster_pca_plot[["top_100_enrichment"]],
+    nucleotide_sequences,
+    trim_5p = 'CAGGTGCAGCTGCAG', trim_3p = 'GGTCACCGTCTCCTCA')
+
+# write to file so they can be downloaded
+Biostrings::writeXStringSet(
+    top_100_diversity_nt_seq,
+    file = paste0(
+        str_replace_all(params$analysis_name, " ", "_"),
+        "_top_100_diversity_nt_seq.fasta"))
+
+Biostrings::writeXStringSet(
+    top_100_enrichment_nt_seq,
+    file = paste0(
+        str_replace_all(params$analysis_name, " ", "_"),
+        "_top_100_enrichment_nt_seq.fasta"))
+
+# include the plot
+cluster_pca_plot[["plot"]]
+```
+
+{{< downloadthis `r paste0(str_replace_all(params$analysis_name, " ", "_"), "_top_100_enrichment_nt_seq.fasta")` dname=`r paste0(str_replace_all(params$analysis_name, " ", "_"), "_top_100_enrichment_nt_seq")` label="Download top 100 (by enrichment) FASTA" icon=file-earmark-arrow-down type=secondary class=data-button id=top100_enrichment >}}
+
+{{< downloadthis `r paste0(str_replace_all(params$analysis_name, " ", "_"), "_top_100_diversity_nt_seq.fasta")` dname=`r paste0(str_replace_all(params$analysis_name, " ", "_"), "_top_100_diversity_nt_seq")` label="Download top 100 (by diversity) FASTA" icon=file-earmark-arrow-down type=secondary class=data-button id=top100_diversity >}}

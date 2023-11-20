@@ -1,16 +1,190 @@
-# Nanobody library QC
+---
+title: QC report
+date: today
+bibliography: _template/references.bib
+csl: _template/vancouver_superscript.csl
+knitr:
+  opts_chunk:
+    echo: false
+    message: false
+    warning: false
+format:
+    html:
+        grid:
+            body-width: 1000px
+            margin-width: 20px
+        theme: _template/litera_edited.scss
+        embed-resources: true
+        fig-width: 10
+        fig-height: 5
+        fig-dpi: 200
+        toc: true
+        toc-location: left
+        toc-depth: 4
+        toc-expand: 2
+        include-in-header:
+            - text: <link rel="preconnect" href="https://fonts.googleapis.com"> <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin> <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,700;1,700&family=Poppins:ital,wght@0,400;0,600;1,400;1,600&display=swap" rel="stylesheet">
+params:
+  analysis_name: param_analysis_name
+---
+
+## Introduction
+This report contains the QC results for `r params$analysis_name`. Please check over these QC results carefully to ensure that both the sequencing libraries and nanobody libraries look ok.
+
+```{r}
+# our pre-render script
+source("./_template/pre_render_script.R")
+```
+
+## Sequencing QC
+
+### MultiQC report {#multiqc_report}
+
+Full sequencing run QC is available in the multiQC[@Ewels2016] report, but not all sections are necessary for our application. In my opinion, these are the most important things we need to look at:
+
+#### Sequence counts {#sequence_counts}
+
+Ideally, we want \~100,000 reads for round 2, \~500,000 reads for round 1 and \~2,000,000 reads for round zero to be confident we are close to saturation. These values are indicated on the graph.
+
+<details class="secondaryDetails">
+
+<summary>What if there are fewer reads?</summary>
+
+<p>Honestly, we can probably get away with fewer reads (but of course it's better to have too many than not enough! Especially so we have some breathing room if there are lots of adapter dimers).\
+Based on diversity estimates, \~ 75,000 reads for round 2, \~250,000 reads for round 1 and \~1,000,000 reads for round 0 should be enough in most cases. If we have less than this, we might still be ok but should check the sequencing saturation before proceeding with the analysis.</p>
+
+</details>
+
+```{r}
+# read in this summary of reads we generated during the pre-processing!
+percent_passing_trim_merge <- vroom("percentage_passing_trim_merge.tsv")
+
+# define the ideal numbers of reads that we will draw lines for on the plot
+ideal_thresholds <- data.frame(
+    round = c(0, 1, 2), threshold = c(2000000, 500000, 100000))
+
+# plot the data
+percent_passing_trim_merge %>%
+    left_join(metadata, by = c("sequence_id" = "sample_num")) %>%
+    mutate(round = as.factor(floor(round))) %>% # round to factor
+    ggplot(aes(x = sequence_id, y = num_reads_after, fill = round)) +
+        geom_col() +
+        geom_hline(data = ideal_thresholds, aes(yintercept = threshold),
+                   colour="#002060") +
+        scale_fill_manual(values = colour_palette) +
+        ylab("Number of read pairs") +
+        xlab("Sample ID") +
+        ggtitle("Number of read pairs") +
+        theme(axis.text.x = element_text(angle = 90, size = 10, vjust = 0.5)) +
+        facet_grid(~round, scales = "free_x", space = "free")
+```
+
+#### Sequence quality histograms
+
+Ideally the quality should be in the green zone (\>Q28) across all bases of the reads. It's not unusual though for it to dip into the yellow, particularly towards the end of R2.
+
+<details class="secondaryDetails">
+
+<summary>What if the quality is worse than that?</summary>
+
+<p>When using MiSeq (instead of NextSeq\*) it's likely that the quality, particularly in R2 will drop off quite quickly. As part of the pre-processing, reads will be trimmed to a minimum quality of Q20 (99.9% accurate) before proceeding with downstream analyses. So, it only affects our downstream results in so far as that we might be left with fewer reads (because after trimming off low-quality parts, there might not be enough left to merge the reads).\
+\* if you see quality dipping into the red on NextSeq runs then something has gone wrong!</p>
+
+</details>
+
+\
+
+![](mqc_fastqc_per_base_sequence_quality_plot_1.png)
+
+#### Per sequence quality scores {#meanquality}
+
+There should be a strong peak in the green zone (\>Q28) for all samples.
+
+<details class="secondaryDetails">
+
+<summary>What if the peak isn't in the green zone?</summary>
+
+<p>If the peak is in the yellow or red zones, something has gone terribly wrong!</p>
+
+</details>
+
+\
+
+![](mqc_fastqc_per_sequence_quality_scores_plot_1.png)
+
+#### Per sequence GC content
+
+There should be a single peak \~55% GC content.
+
+<details class="secondaryDetails">
+
+<summary>What if there are multiple peaks?</summary>
+
+<p>
+
+Given the homogenous nature of nanobodies, we expect only one peak. The presence of multiple peaks suggests that either:
+
+1.  The data probably wasn't demultiplexed well, and so there are some spike-ins mixed with the nanobody reads.
+
+2.  There are high levels of adapter dimers (in NextSeq data this commonly results in peaks at very high GC content, as adapter dimer reads have a lot of G's due to the dark cycle)
+
+Neither of these are critical issues, they just 'waste' some of our sequencing and so we must ensure that we still have enough reads after taking them into consideration
+
+</p>
+
+</details>
+
+![](mqc_fastqc_per_sequence_gc_content_plot_Percentages.png)
+
+### Adapter dimers {#adapter_dimers}
+
+One common problem we can encounter with this protocol is the presence of adapter dimers. These manifest as a low percentage of reads passing through the trimming and merging process. You can check this table to see which samples (if any) had a problem with adapter dimers, and whether they will still have enough reads to meet the [thresholds outlined above](#sequence_counts). You might also want to look at whether any of the various metadata columns seem to correlate in any way with adapter dimer levels.
 
 ```{r}
 #| echo: false
 #| message: false
-#| warning: false
-# annoyingly, we need to source our pre-render script for each chapter in the book
-source("./template/pre_render_script.R")
+
+percent_passing_trim_merge %>%
+    arrange(percentage_passing_trim_merge) %>%
+    left_join(metadata, by = c("sequence_id" = "sample_num")) %>%
+    select(-c(num_reads_before, replicate_id_informative,
+             panning_id)) %>%
+    relocate(c(percentage_passing_trim_merge, num_reads_after), .after = "sequence_id") %>%
+    gt() %>% # make the table using gt package
+    opt_interactive(
+        use_highlight = TRUE,
+        use_filters = TRUE,
+        use_compact_mode = TRUE) %>% # interactive, highlight rows as you hover over
+    tab_options(
+        ihtml.use_page_size_select = TRUE, # choose page size
+        ihtml.page_size_default = 10,
+        ihtml.page_size_values = c(5, 10, 20, 30)) %>%
+    tab_header(
+        title = "Percentage of reads passing through the trimming and merging process",
+        subtitle = "Calculated as the number of raw R1, divided by the number of merged reads"
+      ) %>%
+    cols_label(
+        sequence_id = "Sample ID",
+        library = "Library",
+        antigen = "Antigen",
+        round = "Round",
+        #replicate = "Replicate", # TO DO: work out an ifelse or something here
+        #replicate_id = "Replicate ID", # because it throws an error if these columns arent present
+        num_reads_after = "# of reads remaining",
+        percentage_passing_trim_merge = "%"
+        ) %>%
+    text_replace(pattern = "_", replacement = " ") %>%
+    opt_table_font(font = google_font("Poppins")) %>%
+    data_color(columns = percentage_passing_trim_merge, palette =
+      colorRampPalette(c("#63be7b", "#ffeb84", "#f87274"))(11), reverse = TRUE, method = "bin",
+        bins = c(100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0))
 ```
+
+## Nanobody library QC
 
 As a quick quality control, it is good to check a few basic features of the nanobody libraries (as opposed to the sequencing libraries, which were covered in the last section).\
 
-## Productivity
+### Productivity
 
 We expect the overwhelming majority of reads (\>90%) to be productive, as these nanobodies come from immunised alpacas. A high level of unproductive reads might indicate problems in cloning, or sequencing errors.
 
@@ -50,10 +224,10 @@ ggplot(percent_productive, aes(y = percentage, x = sample_id)) +
 ```
 
 ::: {.callout-note appearance="simple"}
-From here on, only productive reads will be considered in the analysis\
+From here on, only productive reads are considered in the analysis\
 :::
 
-## V, D and J genes {#sec-vdjgenes}
+### V, D and J genes {#sec-vdjgenes}
 
 What we're looking for here is to see a good distribution of the genes across the libraries (a very colourful plot).
 
@@ -113,7 +287,7 @@ ggplot(j_calls, aes(y = percentage, x = sample_id, fill = j_call)) +
     theme(axis.text.x = element_text(angle = 90, size = 8, vjust = 0.5))
 ```
 
-## Saturation curves {#sec-saturation}
+### Saturation curves {#sec-saturation}
 
 Ideally, we would like to sequence our nanobody libraries to saturation (see all nanobody sequences that are present). This will allow us to estimate the sequence diversity, as well as to adopt a conservative filtering approach (excluding CDR3s with a count of 1) to reduce the impact of sequencing errors. We can check whether our sequencing is at saturation by plotting a [saturation curve](https://kb.10xgenomics.com/hc/en-us/articles/115005062366-What-is-sequencing-saturation-): taking random samples of size $x$ from the library, and counting how many unique CDR3s are identified, $y$. **If sequencing is at saturation, the curve will 'flatten out'** (come to an asymptote) once we have seen all of the possible unique CDR3s in the library. The $y$ value of this asymptote represents the diversity of the nanobody library.
 
@@ -151,7 +325,7 @@ for(i in seq_along(plot_list)){
 }
 ```
 
-## Estimated library diversity {#sec-diversity}
+### Estimated library diversity {#sec-diversity}
 
 Using the data from the saturation curves, we can estimate the diversity of our nanobody libraries:
 

@@ -5,7 +5,7 @@
  * 2x300 illumina sequencing data from nanobodies
  */
 
-version = "v0.1.0"
+version = "v0.3.0"
 
 if(params.help == true){
 log.info """
@@ -13,7 +13,7 @@ log.info """
  ∩~~~∩
 ξ ･×･ ξ
 ξ ~  ξ   		★ NanoLogix ★
-ξ　  ξ              v0.1.0
+ξ　  ξ              v0.3.0
 ξ　  “~~~~~~_
 ξ　          ξ
  ξ ξ ξ~~~ξ ξ
@@ -125,16 +125,10 @@ workflow{
 
     prepare_report_templates(
         sample_sheet,
-        quarto_base_yaml,
         original_qmd_templates,
-        adapter_r1,
-        adapter_r2,
-        analysis_name,
-        sequence_trim_5p,
-        sequence_trim_3p)
+        analysis_name)
 
     edited_qmd_templates = prepare_report_templates.out.report_templates
-    edited_quarto_yaml = prepare_report_templates.out.edited_quarto_yaml
 
     render_report(
         processed_tsv,
@@ -143,7 +137,6 @@ workflow{
         percentage_passing_trim_merge,
         template_dir,
         extensions_dir,
-        edited_quarto_yaml,
         edited_qmd_templates,
         analysis_name)
 
@@ -154,7 +147,7 @@ log.info """
  ∩~~~∩
 ξ ･×･ ξ         ~~ THANK-YOU FOR RUNNING ~~
 ξ ~  ξ   		★ NanoLogix ★
-ξ　  ξ              v0.1.0
+ξ　  ξ              v0.3.0
 ξ　  “~~~~~~_
 ξ　          ξ
  ξ ξ ξ~~~ξ ξ
