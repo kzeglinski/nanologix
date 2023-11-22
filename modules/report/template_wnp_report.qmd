@@ -41,6 +41,9 @@ source("_template/panning_pre_render.R")
 
 ## Top 100 enriched sequences
 ```{r}
+#| layout-ncol: 2
+#| results: "hide"
+#| fig.keep: "all"
 panning_id <- metadata[["panning_id"]][1] # only one pan
 all_counts_filtered %>%
     make_count_matrix(id = panning_id) %>%
