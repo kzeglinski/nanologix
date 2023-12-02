@@ -46,7 +46,7 @@ process prepare_report_templates {
     tag "preparing report templates"
     label 'process_low'
     stageInMode 'copy'
-    container "library://kzeglinski/nanologix/nanologix-report:latest"
+    container "library://kzeglinski/nanologix/nanologix-report:v0.3.0"
 
     input:
     path(sample_sheet)
