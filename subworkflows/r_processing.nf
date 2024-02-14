@@ -32,7 +32,9 @@ process run_r_script {
         '$merged_tsv',
         col_select = c("productive", "complete_vdj","stop_codon", "vj_in_frame", "v_frameshift", "v_call", "d_call", "j_call", "cdr3_aa", "sequence_alignment_aa", "sequence_alignment",
         "v_cigar", "j_cigar")
-    )
+    ) %>%
+    mutate(across(c(productive, complete_vdj, stop_codon, vj_in_frame, v_frameshift),
+                as.logical))
 
     # categories of productivity
     entire_data %>%
