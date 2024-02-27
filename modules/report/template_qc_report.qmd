@@ -24,12 +24,10 @@ format:
         toc-expand: 2
         include-in-header:
             - text: <link rel="preconnect" href="https://fonts.googleapis.com"> <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin> <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,700;1,700&family=Poppins:ital,wght@0,400;0,600;1,400;1,600&display=swap" rel="stylesheet">
-params:
-  analysis_name: param_analysis_name
 ---
 
 ## Introduction
-This report contains the QC results for `r params$analysis_name`. Please check over these QC results carefully to ensure that both the sequencing libraries and nanobody libraries look ok.
+This report contains the QC results for your recent nanologix run. Please check over these QC results carefully to ensure that both the sequencing libraries and nanobody libraries look ok.
 
 ```{r}
 # our pre-render script
@@ -71,7 +69,7 @@ percent_passing_trim_merge %>%
         geom_col() +
         geom_hline(data = ideal_thresholds, aes(yintercept = threshold),
                    colour="#002060") +
-        scale_fill_manual(values = colour_palette) +
+        #scale_fill_manual(values = colour_palette) +
         ylab("Number of read pairs") +
         xlab("Sample ID") +
         ggtitle("Number of read pairs") +
@@ -254,7 +252,7 @@ ggplot(v_calls_clean, aes(y = v_gene_percentage, x = sample_id, fill = v_gene)) 
     geom_col() +
     ylab("% V Gene Usage") +
     xlab("Sample ID") +
-    scale_fill_manual(values = colour_palette) +
+    #scale_fill_manual(values = colour_palette) +
     theme(axis.text.x = element_text(angle = 90, size = 8, vjust = 0.5)) +
     ggtitle("V Gene Usage", subtitle = "Only V genes with at least 5% are shown")
 ```
@@ -268,7 +266,7 @@ ggplot(d_calls, aes(y = percentage, x = sample_id, fill = d_call)) +
     geom_col() +
     ylab("% D Gene Usage") +
     xlab("Sample ID") +
-    scale_fill_manual(values = colour_palette) +
+    #scale_fill_manual(values = colour_palette) +
     theme(axis.text.x = element_text(angle = 90, size = 8, vjust = 0.5)) +
     ggtitle("D Gene Usage")
 ```
@@ -282,7 +280,7 @@ ggplot(j_calls, aes(y = percentage, x = sample_id, fill = j_call)) +
     geom_col() +
     ylab("% J Gene Usage") +
     xlab("Sample ID") +
-    scale_fill_manual(values = rev(colour_palette)) +
+    #scale_fill_manual(values = rev(colour_palette)) +
     ggtitle("J Gene Usage") +
     theme(axis.text.x = element_text(angle = 90, size = 8, vjust = 0.5))
 ```

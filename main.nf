@@ -48,7 +48,6 @@ quarto_base_yaml = params.quarto_base_yaml
 // validate that these are strings
 adapter_r1 = params.adapter_r1
 adapter_r2 = params.adapter_r2
-analysis_name = params.analysis_name
 sequence_trim_5p = params.sequence_trim_5p
 sequence_trim_3p = params.sequence_trim_3p
 
@@ -82,6 +81,7 @@ include { annotation } from './subworkflows/annotation'
 include { r_processing } from './subworkflows/r_processing'
 include { render_report } from './subworkflows/reporting'
 include { prepare_report_templates } from './subworkflows/reporting'
+include { render_qc_report } from './subworkflows/reporting'
 
 /*
  * Run the workflow
@@ -92,6 +92,9 @@ workflow{
     // output is a tuple with [sample_num, [R1, R2]]
     parse_sample_sheet(fastq_dir, sample_sheet)
     sample_read_pairs = parse_sample_sheet.out.samples_R1_R2
+    report_sample = parse_sample_sheet.out.report_sample //association bw sample ID and report ID
+
+    // TODO: avoid re-running shared R0s but now cbf
 
     // trim and merge the data
     trim_merge(sample_read_pairs, adapter_r1, adapter_r2, maximum_overlap)
@@ -117,7 +120,21 @@ workflow{
 
     // R processing of the IgBLAST output
     r_processing(igblast_tsvs)
-    processed_tsv = r_processing.out.processed_tsv.collect()
+    processed_tsv = r_processing.out.processed_tsv.collect(flat: false).flatMap{ it -> tuple(it[0], *it[1..-1]) } // why does this work? who knows
+    processed_tsv
+    .flatMap{ it -> it[1..-1] }
+    .collect()
+    .set{processed_tsv_for_qc_report}
+
+    report_sample
+        .combine(processed_tsv, by: 0) // associate TSVs with reports
+        .map{ it -> tuple(it[1], *it[2])} //don't need sample ID anymore, use *it[2] to unlist
+        .groupTuple(by: 0)
+        // now it's like [report_id, [v_gene_files], [nucleotide files], etc...]
+        // we want all TSVs in one list so they're easy to stage
+        // also this is more resilient to changes in the number/type of TSVs
+        .map{it -> tuple(it[0], it[1..-1].flatten())}
+        .set{report_data}
 
     // reporting
     // edit the templates to include the parameters
@@ -126,22 +143,28 @@ workflow{
     prepare_report_templates(
         sample_sheet,
         original_qmd_templates,
-        analysis_name)
+        report_data)
 
-    edited_qmd_templates = prepare_report_templates.out.report_templates
+    edited_qmd_templates = prepare_report_templates.out.report_templates.collect()
 
     render_report(
-        processed_tsv,
+        sample_sheet,
+        template_dir,
+        extensions_dir,
+        edited_qmd_templates,
+        report_data)
+
+    render_qc_report(
+        processed_tsv_for_qc_report,
         sample_sheet,
         multiqc_plots,
         percentage_passing_trim_merge,
         template_dir,
         extensions_dir,
-        edited_qmd_templates,
-        analysis_name)
+        original_qmd_templates)
 
 }
-workflow.onComplete{
+/* workflow.onComplete{
 log.info """
 ꧙꧙꧙꧙꧙꧙꧙꧙꧙꧙꧙꧙꧙꧙꧙꧙꧙꧙꧙
  ∩~~~∩
@@ -159,3 +182,4 @@ You might like to look at the following:
 ★ how many reads passed the trimming & merging : ${params.out_dir}/percentage_passing_trim_merge.tsv
 """
 }
+ */

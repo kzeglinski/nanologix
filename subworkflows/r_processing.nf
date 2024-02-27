@@ -12,7 +12,7 @@ process run_r_script {
     tuple val(sequence_id), path(merged_tsv)
 
     output:
-    path('*.tsv'), emit: processed_tsv
+    tuple val(sequence_id), path('*.tsv'), emit: processed_tsv
 
     script:
     """

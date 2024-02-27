@@ -34,9 +34,11 @@ workflow annotation {
         // annotate reads using igblast
         igblast_tsv = igblast(
             chunked_merged_fastas,
-            igblast_databases,
+           igblast_databases,
             igdata_dir,
             igblastdb_dir).airr_table
+
+        // TODO: use jakob's cdr3 finder
 
         grouped_tsvs = igblast_tsv.groupTuple(by: 0) // group by first element (the sample ID)
         merged_tsvs = merge_chunked_tsvs(grouped_tsvs) // cat all of them

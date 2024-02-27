@@ -3,17 +3,14 @@ process render_report {
     label 'process_high'
     publishDir "${params.out_dir}/report/", mode: 'copy', pattern: "*.html"
    // stageInMode 'copy'
-    container "library://kzeglinski/nanologix/nanologix-report:v0.3.0"
+    container "library://kzeglinski/nanologix/nanologix-report:v0.4.0"
 
     input:
-    path(processed_tsv)
     path(sample_sheet)
-    path(multiqc_plots)
-    path(percentage_passing_trim_merge)
     path(template_dir)
     path(extensions_dir)
     path(qmd_templates)
-    val(analysis_name)
+    tuple val(report_id), path(report_data)
 
     output:
     path('*.html'), emit: report
@@ -22,15 +19,16 @@ process render_report {
     """
     #!/usr/bin/env bash
 
+    # need the PWD so the caches don't clash between jobs
     export DENO_DIR="\$PWD"
-    export XDG_CACHE_HOME="/tmp/quarto_cache_home"
-    export XDG_DATA_HOME="/tmp/quarto_data_home"
+    export XDG_CACHE_HOME="\$PWD/tmp/quarto_cache_home"
+    export XDG_DATA_HOME="\$PWD/tmp/quarto_data_home"
+    export XDG_RUNTIME_DIR="\$PWD/tmp/quarto_runtime_dir"
 
     tar -xvf _extensions.tar
     tar -xvf _template.tar
 
-    quarto render qc_report.qmd --log qc_report.log
-    quarto render wnp_report.qmd --log wnp_report.log
+    quarto render "${report_id}_report.qmd" --log wnp_report.log --output "${report_id}_report.html"
 
     """
 }
@@ -39,12 +37,12 @@ process prepare_report_templates {
     tag "preparing report templates"
     label 'process_low'
     stageInMode 'copy'
-    container "library://kzeglinski/nanologix/nanologix-report:v0.3.0"
+    container "library://kzeglinski/nanologix/nanologix-report:v0.4.0"
 
     input:
     path(sample_sheet)
     path(qmd_templates)
-    val(analysis_name)
+    tuple val(report_id), path(report_data)
 
     output:
     path('*.qmd'), emit: report_templates
@@ -59,8 +57,14 @@ process prepare_report_templates {
 
     # read in the sample sheet
     metadata <- vroom(fs::dir_ls(glob = "*.csv"),
-        col_select = c("sample_num", "library", "antigen", "round", "replicate"))
+        col_select = c("sample_num", "library", "antigen", "round", "replicate", "panning_id", "report_id")) %>%
+        filter(report_id == "${report_id}")
 
+    if(length(unique(metadata[["panning_id"]])) > 1){
+        stop("More than one panning ID found in the sample sheet. Comparisons are not yet supported.")
+    } else{
+        panning_id <- unique(metadata[["panning_id"]])
+    }
     # create replicate ID if required
     if(!all(is.na(metadata[["replicate"]]))){
         metadata <- metadata %>%
@@ -74,34 +78,47 @@ process prepare_report_templates {
             bind_rows(filter(metadata, round == 0))
     }
 
-    # create panning ID if required
-    if(!all(metadata[["round"]] == 0)){
-        metadata <- metadata %>%
-            filter(round != 0) %>% # temporarily remove R0 samples
-            group_by(library, antigen) %>%
-            mutate(panning_id = as.character(cur_group_id())) %>%
-            ungroup() %>%
-            bind_rows(filter(metadata, round == 0))
-
-        metadata <- metadata %>%
-            group_by(library) %>%
-            summarise(panning_id = paste0(unique(na.omit(panning_id)), collapse = "_")) %>%
-            mutate(round = 0, replicate = NA) %>%
-            right_join(metadata, by = c("library", "round", "replicate")) %>%
-            mutate(panning_id = coalesce(panning_id.x, panning_id.y)) %>%
-            select(-panning_id.x, -panning_id.y)
-    }
-
-    # qc_report
-    readLines("template_qc_report.qmd") %>%
-        stringr::str_replace(pattern = "param_analysis_name", replace = "${analysis_name}") %>%
-        writeLines(con = "qc_report.qmd")
-
     # wnp_report
     readLines("template_wnp_report.qmd") %>%
-        stringr::str_replace(pattern = "param_analysis_name", replace = "${analysis_name}") %>%
-        writeLines(con = "wnp_report.qmd")
+        stringr::str_replace(pattern = "param_analysis_name", replace = "${report_id}") %>%
+        stringr::str_replace(pattern = "param_panning_id", replace = as.character(panning_id)) %>%
+        writeLines(con = "${report_id}_report.qmd")
 
     """
 }
 
+process render_qc_report {
+    tag "creating QC report"
+    label 'process_low'
+    publishDir "${params.out_dir}/report/", mode: 'copy', pattern: "*.html"
+   // stageInMode 'copy'
+    container "library://kzeglinski/nanologix/nanologix-report:v0.4.0"
+
+    input:
+    path(processed_tsv_for_qc_report)
+    path(sample_sheet)
+    path(multiqc_plots)
+    path(percentage_passing_trim_merge)
+    path(template_dir)
+    path(extensions_dir)
+    path(qmd_templates)
+
+    output:
+    path('*.html'), emit: report
+
+    script:
+    """
+    #!/usr/bin/env bash
+
+    export DENO_DIR="\$PWD"
+    export XDG_CACHE_HOME="\$PWD/tmp/quarto_cache_home"
+    export XDG_DATA_HOME="\$PWD/tmp/quarto_data_home"
+    export XDG_RUNTIME_DIR="\$PWD/tmp/quarto_runtime_dir"
+
+    tar -xvf _extensions.tar
+    tar -xvf _template.tar
+
+    quarto render template_qc_report.qmd --log qc_report.log
+
+    """
+}

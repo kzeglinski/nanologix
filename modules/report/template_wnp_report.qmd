@@ -1,5 +1,5 @@
 ---
-title: WNP report
+title: param_analysis_name analysis report
 date: today
 bibliography: _template/references.bib
 csl: _template/vancouver_superscript.csl
@@ -11,7 +11,7 @@ knitr:
 format:
     html:
         grid:
-            body-width: 1000px
+            body-width: 1200px
             margin-width: 20px
         theme: _template/litera_edited.scss
         embed-resources: true
@@ -26,106 +26,123 @@ format:
             - text: <link rel="preconnect" href="https://fonts.googleapis.com"> <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin> <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,700;1,700&family=Poppins:ital,wght@0,400;0,600;1,400;1,600&display=swap" rel="stylesheet">
 params:
   analysis_name: param_analysis_name
+  panning_id: param_panning_id
 ---
+
 ## Introduction
+
 This is the WNP report for `r params$analysis_name`. The report is interactive: click around on the plots and use the download buttons to export the tables/sequences for further analysis!
 
-[some more introductory text, maybe a simple explanation of the method? or something else?]
+Want to know more about how the results were generated? Check the bottom of the report 👇
 
 ```{r}
-# pre-render scripts
+# we have to source the pre render script every time which is annoying
 source("_template/pre_render_script.R")
 source("_template/panning_pre_render.R")
 ```
 
+## Top 100 most abundant sequences in each round
 
-## Top 100 enriched sequences
+The trees in this section visualise the 100 most abundant **clones** in each round. Abundance is measured in counts per million (CPM) and so can be compared between rounds.
+
 ```{r}
-#| layout-ncol: 2
-#| results: "hide"
-#| fig.keep: "all"
-panning_id <- metadata[["panning_id"]][1] # only one pan
-all_counts_filtered %>%
-    make_count_matrix(id = panning_id) %>%
-    filter(nchar(sequence_alignment_aa) > 110) -> full_count_matrix
+#| echo: false
+#| message: false
+#| warning: false
 
-# get the top 100 for round 1 and 2
-full_count_matrix %>%
-    slice_max(n = 100, order_by = R1_NA_vs_R0_NA) -> R1_top_100
+render_child <- function(file, i) {
+  res = knitr::knit_child(
+   text = xfun::read_utf8("./_template/_abundance_tree.qmd"),
+   envir = rlang::env(this_round = i - 1, name = paste0("Round ", i - 1)),
+   quiet = TRUE
+  )
+  cat(res, sep = '\n')
+  cat("\n")
+}
+```
 
-full_count_matrix %>%
-    slice_max(n = 100, order_by = R2_NA_vs_R0_NA) -> R2_top_100
-
-
-R1_sequences <- Biostrings::AAStringSet(R1_top_100$cdr3_aa)
-names(R1_sequences) <- R1_top_100$cdr3_aa
-R1_msa <- msa(R1_sequences, method = "ClustalOmega", type = "protein")
-R1_matrix <- seqinr::dist.alignment(
-    msaConvert(R1_msa, type = "seqinr::alignment"), matrix = "identity")
-R1_clustered <- ape::njs(R1_matrix)
-R1_plot <- ggtree(R1_clustered, layout = "equal_angle")
-R1_plot
-
-R2_sequences <- Biostrings::AAStringSet(R2_top_100$cdr3_aa)
-names(R2_sequences) <- R2_top_100$cdr3_aa
-R2_msa <- msa(R2_sequences, method = "ClustalOmega", type = "protein")
-R2_matrix <- seqinr::dist.alignment(
-    msaConvert(R2_msa, type = "seqinr::alignment"), matrix = "identity")
-R2_clustered <- ape::njs(R2_matrix)
-R2_plot <- ggtree(R2_clustered, layout = "equal_angle")
-R2_plot
+```{r}
+#| results: "asis"
+#| echo: false
+purrr::iwalk(sort(unique(metadata$round)), render_child)
 ```
 
 ## Enriched clusters
+
+### PCA plot & top 100s
+
 ```{r}
 # get enriched sequences
+# get enriched sequences
 enriched_clustered <- determine_enriched(
-    all_counts_filtered, panning_id, logfc_cutoff = 1.5)
+    all_counts_filtered, as.numeric(params$panning_id), logfc_cutoff = 1.5)
 
 # create the pca plot & find top 100
-cluster_pca_plot <- plot_cluster_pca(enriched_clustered, id = params$analysis_name)
-
-# get full sequences
-# first find the ones we are looking for (this pan, round 2 only)
-wanted_samples <- metadata %>%
-    filter(round == 2) %>%
-    pull(sample_num)
-
-wanted_samples <- paste0(wanted_samples, "_")
-
-all_files <- fs::dir_ls(glob = "*_nucleotide_sequences.tsv")
-wanted_files <- str_subset(all_files, paste(wanted_samples, collapse = "|"))
-
-nucleotide_sequences <- vroom(wanted_files)
-
-# top 100 full sequences, with missing nt filled in
-top_100_diversity_nt_seq <- get_full_sequences(
-    cdr3s = cluster_pca_plot[["top_100_diversity"]],
-    nucleotide_sequences,
-    trim_5p = 'CAGGTGCAGCTGCAG', trim_3p = 'GGTCACCGTCTCCTCA')
-
-top_100_enrichment_nt_seq <- get_full_sequences(
-    cdr3s = cluster_pca_plot[["top_100_enrichment"]],
-    nucleotide_sequences,
-    trim_5p = 'CAGGTGCAGCTGCAG', trim_3p = 'GGTCACCGTCTCCTCA')
+cluster_pca_plot_data <- make_cluster_pca_data(enriched_clustered, as.numeric(params$panning_id), metadata, max_round = max(metadata$round))
+plot_cluster_pca(cluster_pca_plot_data$pca_data, cluster_pca_plot_data$table_data, params$analysis_name)
 
 # write to file so they can be downloaded
+diversity_100 <- cluster_pca_plot_data$table_data %>%
+    filter(cluster_lead %in% cluster_pca_plot_data$top_100_diversity) %>%
+    select(cluster_lead, trimmed_nt_sequence)
+top_100_diversity_nt_seq <- Biostrings::DNAStringSet(diversity_100$trimmed_nt_sequence)
+names(top_100_diversity_nt_seq) <- diversity_100$cluster_lead
+
 Biostrings::writeXStringSet(
     top_100_diversity_nt_seq,
     file = paste0(
         str_replace_all(params$analysis_name, " ", "_"),
         "_top_100_diversity_nt_seq.fasta"))
 
+enrichment_100 <- cluster_pca_plot_data$table_data %>%
+    filter(cluster_lead %in% cluster_pca_plot_data$top_100_enrichment) %>%
+    select(cluster_lead, trimmed_nt_sequence)
+top_100_enrichment_nt_seq <- Biostrings::DNAStringSet(enrichment_100$trimmed_nt_sequence)
+names(top_100_enrichment_nt_seq) <- enrichment_100$cluster_lead
+
 Biostrings::writeXStringSet(
     top_100_enrichment_nt_seq,
     file = paste0(
         str_replace_all(params$analysis_name, " ", "_"),
         "_top_100_enrichment_nt_seq.fasta"))
-
-# include the plot
-cluster_pca_plot[["plot"]]
 ```
 
-{{< downloadthis `r paste0(str_replace_all(params$analysis_name, " ", "_"), "_top_100_enrichment_nt_seq.fasta")` dname=`r paste0(str_replace_all(params$analysis_name, " ", "_"), "_top_100_enrichment_nt_seq")` label="Download top 100 (by enrichment) FASTA" icon=file-earmark-arrow-down type=secondary class=data-button id=top100_enrichment >}}
+{{< downloadthis r paste0(str_replace_all(params$analysis_name, " ", "_"), "_top_100_enrichment_nt_seq.fasta") dname=r paste0(str_replace_all(params$analysis_name, " ", "_"), "_top_100_enrichment_nt_seq") label="Download top 100 (by enrichment) FASTA" icon=file-earmark-arrow-down type=secondary class=data-button id=top100_enrichment >}}
 
-{{< downloadthis `r paste0(str_replace_all(params$analysis_name, " ", "_"), "_top_100_diversity_nt_seq.fasta")` dname=`r paste0(str_replace_all(params$analysis_name, " ", "_"), "_top_100_diversity_nt_seq")` label="Download top 100 (by diversity) FASTA" icon=file-earmark-arrow-down type=secondary class=data-button id=top100_diversity >}}
+{{< downloadthis r paste0(str_replace_all(params$analysis_name, " ", "_"), "_top_100_diversity_nt_seq.fasta") dname=r paste0(str_replace_all(params$analysis_name, " ", "_"), "_top_100_diversity_nt_seq") label="Download top 100 (by diversity) FASTA" icon=file-earmark-arrow-down type=secondary class=data-button id=top100_diversity >}}
+
+### Tree of the top 100 most enriched clusters
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+# use suppressMessages to stop the stupid using gonnet message
+enriched_tree_data <- suppressMessages(make_interactive_tree_data(
+    enriched_clustered, which_round = max(metadata$round),
+    id = as.numeric(params$panning_id), enriched = TRUE))
+
+enriched_tree <- plot_interactive_tree(
+    enriched_tree_data$tree_data,
+    enriched_tree_data$table_data,
+    name = params$analysis_name,
+    enriched = TRUE)
+
+```
+
+```{r}
+#| fig-width: 10
+#| fig-height: 1
+enriched_tree$legend
+```
+
+```{r}
+enriched_tree$interactive_plot
+```
+
+## Analysis method
+
+TODO: put a mermaid diagram of the method here
+
+lkjsadlkasjdlkjwqijjwnkjnmznc,jnasjknd
