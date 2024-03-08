@@ -53,7 +53,7 @@ The trees in this section visualise the 100 most abundant **clones** in each rou
 render_child <- function(file, i) {
   res = knitr::knit_child(
    text = xfun::read_utf8("./_template/_abundance_tree.qmd"),
-   envir = rlang::env(this_round = i - 1, name = paste0("Round ", i - 1)),
+   envir = rlang::env(this_round = i, name = paste0("Round ", i)),
    quiet = TRUE
   )
   cat(res, sep = '\n')
