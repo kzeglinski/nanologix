@@ -146,6 +146,7 @@ workflow{
         report_data)
 
     edited_qmd_templates = prepare_report_templates.out.report_templates.collect()
+edited_qmd_templates.view()
 
     render_report(
         sample_sheet,

@@ -39,6 +39,7 @@ Want to know more about how the results were generated? Check the bottom of the 
 # we have to source the pre render script every time which is annoying
 source("_template/pre_render_script.R")
 source("_template/panning_pre_render.R")
+metadata <- filter(metadata, report_id == params$analysis_name)
 ```
 
 ## Top 100 most abundant sequences in each round
@@ -64,7 +65,7 @@ render_child <- function(file, i) {
 ```{r}
 #| results: "asis"
 #| echo: false
-purrr::iwalk(sort(unique(metadata$round)), render_child)
+purrr::iwalk(seq(from = 1, to = max(metadata$round)), render_child)
 ```
 
 ## Enriched clusters
@@ -75,7 +76,7 @@ purrr::iwalk(sort(unique(metadata$round)), render_child)
 # get enriched sequences
 # get enriched sequences
 enriched_clustered <- determine_enriched(
-    all_counts_filtered, as.numeric(params$panning_id), logfc_cutoff = 1.5)
+    all_counts_filtered, as.numeric(params$panning_id), logfc_cutoff = 1.5, max_round = max(metadata$round))
 
 # create the pca plot & find top 100
 cluster_pca_plot_data <- make_cluster_pca_data(enriched_clustered, as.numeric(params$panning_id), metadata, max_round = max(metadata$round))
